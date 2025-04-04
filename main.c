@@ -15,10 +15,13 @@ extern char pathName[];
 /*
 Mode 0: Automatically get pic folder names and sort them
 Mode 1: Automatically get pic folder names but not sorted
-Mode 2: pic folder name is not automatically obtained, users need to create fileList.txt file and write the picture name in TF card by themselves
+Mode 2: pic folder name is not automatically obtained, users need to create fileList.txt file and write the picture name in TF card by themselves, no file limit
+Mode 3: Same as mode 2 but next image will be selected randomly from fileList.txt
 */
-#define Mode 0
+#define Mode_Value 3
 
+// Make Mode accessible from other files
+int Mode = Mode_Value;
 
 float measureVBAT(void)
 {
@@ -108,6 +111,11 @@ int main(void)
         if(Mode == 2)
         {
             printf("Mode 2\r\n");
+            file_cat();
+        }
+        if(Mode == 3)
+        {
+            printf("Mode 3\r\n");
             file_cat();
         }
         

@@ -22,4 +22,7 @@ void setFilePath(void);
 void updatePathIndex(void);
 void file_sort();
 
+// Get random image index for Mode 3
+int getRandomImageIndex(void);
+
 #endif

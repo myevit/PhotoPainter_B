@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h> // malloc() free()
 #include <string.h>
+#include <stdlib.h> // for rand() and srand()
+#include <time.h> // for time()
+extern int Mode; // From main.c
 
 const char *fileList = "fileList.txt";          // Picture names store files
 const char *fileListNew = "fileListNew.txt";    // Sort good picture name temporarily store file
@@ -302,8 +305,34 @@ void file_cat(void)
 {
     run_mount();
 
-    run_cat(fileList);
+    FRESULT fr; /* Return value */
+    FIL fil;
+    fr = f_open(&fil, fileList, FA_READ);
+    if (FR_OK != fr) 
+    {
+        printf("f_open error: %s (%d)\n", FRESULT_str(fr), fr);
+        run_unmount();
+        return;
+    }
 
+    // First count the number of lines in the file
+    char line[fileLen];
+    int i = 0;
+    const int MAX_FILES = 100000; // Set a reasonable limit to prevent memory issues
+    
+    while (f_gets(line, sizeof(line), &fil) && i < MAX_FILES) 
+    {
+        i++;
+    }
+    
+    if (i >= MAX_FILES) {
+        printf("Warning: File limit of %d reached. Some files may be ignored.\n", MAX_FILES);
+    }
+    
+    printf("The number of file names read is %d\n", i);
+    scanFileNum = i;
+    
+    f_close(&fil);
     run_unmount();
 }
 
@@ -451,6 +480,32 @@ void setFilePath(void)
 
 /* 
     function: 
+        Get random image index for Mode 3
+    parameter: 
+        none
+    return: 
+        Random image index
+*/
+int getRandomImageIndex(void)
+{
+    int index = 1;
+    
+    if(scanFileNum <= 1) {
+        return 1; // If there's only one file or none, return 1
+    }
+    
+    // Seed the random number generator with current time
+    srand(time(NULL));
+    
+    // Generate random number between 1 and scanFileNum
+    index = rand() % scanFileNum + 1;
+    
+    printf("Random index selected: %d\r\n", index);
+    return index;
+}
+
+/* 
+    function: 
         Update the image index. Update the image index after the image refresh is successful
     parameter: 
         none
@@ -460,9 +515,17 @@ void updatePathIndex(void)
     int index = 1;
 
     index = getPathIndex();
-    index++;
-    if(index > scanFileNum)
-        index = 1;
+    
+    if(Mode == 3) {
+        // For Mode 3, get a random index
+        index = getRandomImageIndex();
+    } else {
+        // For other modes, increment the index
+        index++;
+        if(index > scanFileNum)
+            index = 1;
+    }
+    
     setPathIndex(index);
     printf("updatePathIndex index is %d\r\n", index);
 }
