@@ -8,6 +8,8 @@
 #include <string.h>
 #include <stdlib.h> // for rand() and srand()
 #include <time.h> // for time()
+#include "hardware/regs/rosc.h"  // For RP2040 hardware RNG
+#include "hardware/regs/addressmap.h"  // For RP2040 hardware RNG
 extern int Mode; // From main.c
 
 const char *fileList = "fileList.txt";          // Picture names store files
@@ -494,13 +496,29 @@ int getRandomImageIndex(void)
         return 1; // If there's only one file or none, return 1
     }
     
-    // Seed the random number generator with current time
-    srand(time(NULL));
+    // Use RP2040 hardware to generate better random numbers
+    // Get true random seed from RP2040 ring oscillator
+    uint32_t random_seed = 0;
+    
+    // Use free-running oscillator for randomness
+    volatile uint32_t *rnd_reg = (uint32_t *)(ROSC_BASE + ROSC_RANDOMBIT_OFFSET);
+    
+    // Mix in some hardware noise
+    for (int i = 0; i < 32; i++) {
+        // Wait a bit
+        for (int j = 0; j < 30; j++) {
+            asm volatile("nop");
+        }
+        // Get one random bit
+        random_seed = (random_seed << 1) | (*rnd_reg & 1);
+    }
+    
+    srand(random_seed);
     
     // Generate random number between 1 and scanFileNum
     index = rand() % scanFileNum + 1;
     
-    printf("Random index selected: %d\r\n", index);
+    printf("Random index selected: %d (from seed: %lu)\r\n", index, random_seed);
     return index;
 }
 

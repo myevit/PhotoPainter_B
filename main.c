@@ -10,7 +10,7 @@
 extern const char *fileList;
 extern char pathName[];
 
-#define enChargingRtc 0
+#define enChargingRtc 1
 
 /*
 Mode 0: Automatically get pic folder names and sort them
@@ -68,7 +68,7 @@ int main(void)
     Time_data alarmTime = Time;
     // alarmTime.seconds += 10;
     // alarmTime.minutes += 5; 
-    alarmTime.hours +=12;
+    alarmTime.hours +=1;
     char isCard = 0;
   
     printf("Init...\r\n");
