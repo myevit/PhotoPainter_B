@@ -359,32 +359,73 @@ void sdScanDir(void)
     function: 
         Read the name of the image to be refreshed and store it in an array for use by this program
     parameter: 
-        none
+        index: The line number to read from fileList.txt (1-based)
 */
 void fil2array(int index)
 {
-    run_mount();
-
+    // Don't mount here - caller should handle mounting
+    
     FRESULT fr; /* Return value */
     FIL fil;
+    char temp_path[fileLen];
+    int current_line = 0;
 
-    fr =  f_open(&fil, fileList, FA_READ);
+    fr = f_open(&fil, fileList, FA_READ);
     if(FR_OK != fr && FR_EXIST != fr) {
         printf("fil2array open error\r\n");
-        run_unmount();
         return;
     }
 
-    // printf("ls array path\r\n");
-    for(int i=0; i<index; i++) {
-        if(f_gets(pathName, 999, &fil) == NULL) {
+    // Ensure valid index
+    if(index < 1) {
+        index = 1;
+        printf("Warning: Invalid index, using 1\r\n");
+    }
+    
+    // Start with empty path in case of error
+    strcpy(pathName, "");
+    
+    printf("Reading file at index %d\r\n", index);
+    
+    // Always start from beginning and count to the desired index
+    while(f_gets(temp_path, fileLen-1, &fil) != NULL) {
+        current_line++;
+        
+        // When we reach the requested index, store that path
+        if(current_line == index) {
+            strcpy(pathName, temp_path);
+            // Remove newline characters
+            char* newline = strchr(pathName, '\r');
+            if (newline) *newline = '\0';
+            newline = strchr(pathName, '\n');
+            if (newline) *newline = '\0';
+            
+            printf("Selected file at index %d: %s\r\n", index, pathName);
             break;
         }
-        // printf("%s", pathName[i]);
+    }
+    
+    // If we didn't find the requested index
+    if(current_line < index || pathName[0] == '\0') {
+        // If we couldn't find the exact index, use the first file
+        f_lseek(&fil, 0); // Go back to beginning
+        if(f_gets(pathName, fileLen-1, &fil) != NULL) {
+            // Remove newline characters
+            char* newline = strchr(pathName, '\r');
+            if (newline) *newline = '\0';
+            newline = strchr(pathName, '\n');
+            if (newline) *newline = '\0';
+            
+            printf("Requested index %d exceeds file count %d, using first file: %s\r\n", 
+                  index, current_line, pathName);
+        } else {
+            printf("Error: Could not read any files from fileList.txt\r\n");
+        }
     }
 
     f_close(&fil);
-    run_unmount();
+    
+    // Don't unmount here - caller should handle unmounting
 }
 
 /* 
@@ -465,19 +506,32 @@ static int getPathIndex(void)
 */
 void setFilePath(void)
 {
-    int index = 1;
-
-    if(isFileExist("index.txt")) {
-        printf("index.txt is exist\r\n");
-        index = getPathIndex();
-    }
-    else {
-        printf("creat and set Index 0\r\n");    
-        setPathIndex(1);
+    Settings_t settings;
+    
+    // Make sure SD card is mounted before accessing files
+    run_mount();
+    
+    if(loadSettings(&settings) != 0) {
+        printf("Failed to load settings, using defaults\r\n");
+        settings.currentIndex = 1;
+        saveSettings(&settings);
     }
     
-    fil2array(index);
-    printf("setFilePath is %s\r\n", pathName);
+    printf("Current settings - Mode: %d, Index: %d\r\n", settings.mode, settings.currentIndex);
+    
+    if(settings.currentIndex < 1 || (scanFileNum > 0 && settings.currentIndex > scanFileNum)) {
+        // Index out of range, reset to 1
+        printf("Index out of range (1-%d), resetting to 1\r\n", scanFileNum);
+        settings.currentIndex = 1;
+        saveSettings(&settings);
+    }
+    
+    fil2array(settings.currentIndex);
+    
+    // Unmount when done with file operations
+    run_unmount();
+    
+    printf("Selected image: %s (index: %d)\r\n", pathName, settings.currentIndex);
 }
 
 /* 
@@ -530,22 +584,56 @@ int getRandomImageIndex(void)
 */
 void updatePathIndex(void)
 {
-    int index = 1;
-
-    index = getPathIndex();
+    Settings_t settings;
     
-    if(Mode == 3) {
-        // For Mode 3, get a random index
-        index = getRandomImageIndex();
-    } else {
-        // For other modes, increment the index
-        index++;
-        if(index > scanFileNum)
-            index = 1;
+    // Make sure SD card is mounted before updating
+    run_mount();
+    
+    // Load current settings
+    if(loadSettings(&settings) != 0) {
+        printf("Failed to load settings, using defaults\r\n");
+        settings.mode = Mode; // Use global Mode if settings can't be loaded
+        settings.timeInterval = 12*60;
+        settings.currentIndex = 1;
     }
     
-    setPathIndex(index);
-    printf("updatePathIndex index is %d\r\n", index);
+    // Determine which mode to use - either global Mode or settings.mode
+    int active_mode = (Mode >= 0 && Mode <= 3) ? Mode : settings.mode;
+    printf("Active mode for index update: %d\r\n", active_mode);
+    
+    if(active_mode == 3) {
+        // For Mode 3, get a new random index
+        int new_index = getRandomImageIndex();
+        printf("Generated random index: %d (old index was: %d)\r\n", 
+               new_index, settings.currentIndex);
+               
+        // Ensure we don't get the same index twice in a row if possible
+        if(new_index == settings.currentIndex && scanFileNum > 1) {
+            printf("Same index generated, trying again...\r\n");
+            new_index = getRandomImageIndex();
+            printf("New random index: %d\r\n", new_index);
+        }
+        
+        settings.currentIndex = new_index;
+    } else {
+        // For other modes, increment the index
+        settings.currentIndex++;
+        printf("Incrementing index to: %d\r\n", settings.currentIndex);
+        
+        if(settings.currentIndex > scanFileNum) {
+            settings.currentIndex = 1;
+            printf("Wrapped index back to 1\r\n");
+        }
+    }
+    
+    // Save updated settings - no need to mount since we already did
+    saveSettings(&settings);
+    
+    // Make sure to unmount when done
+    run_unmount();
+    
+    printf("Updated index to %d (Mode: %d)\r\n", 
+           settings.currentIndex, active_mode);
 }
 
 /* 
@@ -933,6 +1021,179 @@ void file_sort()
         file_rm_ren(Temporary_file_name, file_count);
     }
     run_unmount();
+}
+
+/* 
+    function: 
+        Check if settings file exists, create it with defaults if not
+    parameter: 
+        none
+    return: 
+        0: Success
+        1: Error
+*/
+void createDefaultSettings(void)
+{
+    // Don't mount here - caller should handle mounting
+    
+    FRESULT fr;
+    FIL fil;
+    // Initialize explicitly with fixed values
+    int default_mode = 3;
+    int default_time = 12*60;
+    int default_index = 1;
+
+    fr = f_open(&fil, "settings.txt", FA_CREATE_ALWAYS | FA_WRITE);
+    if (FR_OK != fr) {
+        printf("Failed to create settings file: %s (%d)\n", FRESULT_str(fr), fr);
+        return;
+    }
+
+    // Use explicit integer values, avoid struct initialization
+    f_printf(&fil, "Mode=%d\r\n", default_mode);
+    f_printf(&fil, "TimeInterval=%d\r\n", default_time);
+    f_printf(&fil, "CurrentIndex=%d\r\n", default_index);
+
+    f_sync(&fil);  // Make sure it's written to disk
+    f_close(&fil);
+    printf("Created default settings file with Mode=%d, TimeInterval=%d, CurrentIndex=%d\r\n", 
+           default_mode, default_time, default_index);
+           
+    // Don't unmount here - caller should handle unmounting
+}
+
+/* 
+    function: 
+        Load settings from settings.txt
+    parameter: 
+        settings: Pointer to settings structure to fill
+    return: 
+        0: Success
+        1: Error
+*/
+char loadSettings(Settings_t *settings)
+{
+    // Don't mount here - caller should handle mounting
+    
+    FRESULT fr;
+    FIL fil;
+    char line[100];
+    char key[50];
+    int value;
+    FILINFO fno;
+
+    // Initialize with safe defaults
+    settings->mode = 3;
+    settings->timeInterval = 12*60;
+    settings->currentIndex = 1;
+
+    // Check if settings file exists
+    fr = f_stat("settings.txt", &fno);
+    if (fr != FR_OK) {
+        printf("Settings file not found, creating default\r\n");
+        createDefaultSettings();
+    }
+
+    fr = f_open(&fil, "settings.txt", FA_READ);
+    if (FR_OK != fr) {
+        printf("Failed to open settings file: %s (%d)\n", FRESULT_str(fr), fr);
+        return 1;
+    }
+
+    // Read settings line by line
+    while (f_gets(line, sizeof(line), &fil)) {
+        // Remove newline characters
+        char* newline = strchr(line, '\r');
+        if (newline) *newline = '\0';
+        newline = strchr(line, '\n');
+        if (newline) *newline = '\0';
+        
+        // Print raw line for debugging
+        printf("Read raw line: [%s]\r\n", line);
+        
+        // Parse each line as key=value
+        if (sscanf(line, "%[^=]=%d", key, &value) == 2) {
+            printf("Parsed: key=[%s], value=%d\r\n", key, value);
+            
+            // Verify value is reasonable before accepting it
+            if (strcmp(key, "Mode") == 0) {
+                if (value >= 0 && value <= 3) {
+                    settings->mode = value;
+                    printf("Set Mode=%d\r\n", value);
+                } else {
+                    printf("Invalid Mode value: %d (must be 0-3)\r\n", value);
+                }
+            } else if (strcmp(key, "TimeInterval") == 0) {
+                if (value > 0 && value < 24*60) {  // Sanity check: between 1 minute and 24 hours
+                    settings->timeInterval = value;
+                    printf("Set TimeInterval=%d\r\n", value);
+                } else {
+                    printf("Invalid TimeInterval value: %d (must be 1-%d)\r\n", value, 24*60);
+                }
+            } else if (strcmp(key, "CurrentIndex") == 0) {
+                if (value > 0) {  // Must be positive
+                    settings->currentIndex = value;
+                    printf("Set CurrentIndex=%d\r\n", value);
+                } else {
+                    printf("Invalid CurrentIndex value: %d (must be > 0)\r\n", value);
+                }
+            }
+        } else {
+            printf("Failed to parse line: [%s]\r\n", line);
+        }
+    }
+
+    f_close(&fil);
+    
+    // Don't unmount here - caller should handle unmounting
+    return 0;
+}
+
+/* 
+    function: 
+        Save settings to settings.txt
+    parameter: 
+        settings: Pointer to settings structure to save
+    return: 
+        none
+*/
+void saveSettings(Settings_t *settings)
+{
+    // Don't mount here - caller should handle mounting
+    
+    FRESULT fr;
+    FIL fil;
+    
+    // Validate settings before saving
+    int mode = (settings->mode >= 0 && settings->mode <= 3) ? settings->mode : 3;
+    int time_interval = (settings->timeInterval > 0 && settings->timeInterval < 24*60) ? 
+                         settings->timeInterval : 12*60;
+    int current_index = (settings->currentIndex > 0) ? settings->currentIndex : 1;
+
+    fr = f_open(&fil, "settings.txt", FA_CREATE_ALWAYS | FA_WRITE);
+    if (FR_OK != fr) {
+        printf("Failed to create settings file: %s (%d)\n", FRESULT_str(fr), fr);
+        return;
+    }
+
+    // Write values safely
+    printf("Writing Mode=%d\r\n", mode);
+    f_printf(&fil, "Mode=%d\r\n", mode);
+    
+    printf("Writing TimeInterval=%d\r\n", time_interval);
+    f_printf(&fil, "TimeInterval=%d\r\n", time_interval);
+    
+    printf("Writing CurrentIndex=%d\r\n", current_index);
+    f_printf(&fil, "CurrentIndex=%d\r\n", current_index);
+
+    // Ensure data is written to disk
+    f_sync(&fil);
+    f_close(&fil);
+    
+    printf("Saved settings: Mode=%d, TimeInterval=%d, CurrentIndex=%d\r\n", 
+           mode, time_interval, current_index);
+           
+    // Don't unmount here - caller should handle unmounting
 }
 
 

@@ -74,7 +74,7 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
     else
         Paint_SetRotate(90);
 
-    printf("pixel = %d * %d\r\n", bmpInfoHeader.biWidth, bmpInfoHeader.biHeight);
+    printf(" resolution = %d * %d\r\n", bmpInfoHeader.biWidth, bmpInfoHeader.biHeight);
 
     // Determine if it is a monochrome bitmap
     int readbyte = bmpInfoHeader.biBitCount;

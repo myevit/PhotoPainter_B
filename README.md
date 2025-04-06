@@ -7,7 +7,9 @@ PhotoPainter_B is an enhanced firmware for the Waveshare PhotoPainter (B) e-pape
 - Battery-powered e-paper photo frame
 - Multiple display modes for different slideshow preferences
 - Low power consumption with automatic sleep mode
-- Image rotation at fixed intervals (default 12 hours)
+- Image rotation at fixed intervals (configurable from 1 minute to 24 hours)
+- True random image selection in Mode 3 using RP2040 hardware RNG
+- Settings configuration via settings.txt file
 - Charging status indication with LED
 - Low battery protection
 - Support for SD card to store images
@@ -19,15 +21,27 @@ The PhotoPainter_B supports four operation modes:
 1. **Mode 0**: Automatically scans the `pic` folder on the SD card, sorts the filenames alphabetically, and displays them sequentially.
 2. **Mode 1**: Automatically scans the `pic` folder on the SD card, displays images in the order they are found (unsorted).
 3. **Mode 2**: Uses a user-created `fileList.txt` file with custom paths to images. No file limit, allowing for a large collection of images.
-4. **Mode 3**: Same as Mode 2, but selects the next image randomly from the `fileList.txt` file instead of sequentially.
-
-You can change the default mode by modifying the `Mode_Value` define in the `main.c` file:
-
-```c
-#define Mode_Value 0  // Change to 0, 1, 2, or 3 as needed
-```
+4. **Mode 3**: Same as Mode 2, but selects the next image randomly from the `fileList.txt` file using true hardware random number generation.
 
 ## Settings
+
+You can now configure the device using a `settings.txt` file on the SD card. If this file doesn't exist, it will be created automatically with default values.
+
+### Settings File Format
+
+The settings.txt file uses a simple key-value format:
+
+```
+Mode=3
+TimeInterval=720
+CurrentIndex=1
+```
+
+- **Mode**: Operation mode (0-3) as described above
+- **TimeInterval**: Time between image changes in minutes (1-1440, default is 720 = 12 hours)
+- **CurrentIndex**: Current position in the image list (automatically updated)
+
+You can edit this file manually to change settings without modifying the code.
 
 ### Hardware Configuration
 
@@ -38,14 +52,24 @@ You can change the default mode by modifying the `Mode_Value` define in the `mai
 
 ### Timing Configuration
 
-The default image rotation interval is set to 12 hours. You can modify this by changing the alarm time settings in `main.c`:
+The image rotation interval can now be set directly in the settings.txt file:
 
-```c
-// Change the interval by modifying one of these values
-alarmTime.hours += 12;    // Change for hours
-// alarmTime.minutes += 5;   // Uncomment for minutes
-// alarmTime.seconds += 10;  // Uncomment for seconds
 ```
+TimeInterval=720  # 12 hours (in minutes)
+```
+
+For shorter intervals:
+```
+TimeInterval=60   # 1 hour
+TimeInterval=5    # 5 minutes
+TimeInterval=1    # 1 minute
+```
+
+Note: When using very short intervals (e.g., 1 minute), the device should be connected to power. In battery mode, the device powers off between updates and requires hardware support to wake up from RTC alarm.
+
+### Random Image Selection
+
+Mode 3 now uses the RP2040's hardware ring oscillator as a source of true randomness, ensuring a better distribution of random images and avoiding repetition.
 
 ### Battery Protection
 
@@ -88,15 +112,28 @@ This tool provides:
 1. Convert your images using the [PhotoPainter_image_converter](https://github.com/myevit/PhotoPainter_image_converter)
 2. Copy the converted images to the SD card's `pic` folder
 3. If using Mode 2 or 3, create a `fileList.txt` file listing the images
-4. Insert the SD card into the PhotoPainter device
-5. Power on the device and enjoy your slideshows
+4. (Optional) Create or modify `settings.txt` to customize operation mode and timing
+5. Insert the SD card into the PhotoPainter device
+6. Power on the device and enjoy your slideshows
 
 ## Troubleshooting
 
 - If the display doesn't update, check the battery level
 - If images don't appear, verify the SD card is properly formatted (FAT32 recommended)
 - For Mode 2 and 3, make sure the paths in `fileList.txt` are correct
+- If settings aren't being saved, check SD card permissions and ensure it's not write-protected
+- For 1-minute intervals, keep the device connected to power to ensure it stays active
 - Images must be in a compatible format (BMP files work best with this firmware)
+- If you experience issues, check the debug output when connected via USB
+
+## Recent Updates
+
+- Added settings.txt file for easy configuration
+- Improved random image selection using hardware RNG
+- Enhanced mount/unmount handling for more reliable file operations
+- Better error recovery and validation for all user inputs
+- Improved RTC alarm handling
+- Added comprehensive debug logging
 
 ## License
 
