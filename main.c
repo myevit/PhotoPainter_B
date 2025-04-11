@@ -155,6 +155,7 @@ int main(void)
     if(measureVBAT() < 3.1) {   // battery power is low
         printf("low power ...\r\n");
         PCF85063_alarm_Time_Disable();
+        EPD_7in3e_display_low_battery();
         ledLowPower();  // LED flash for Low power
         powerOff(); // BAT off
         return 0;
