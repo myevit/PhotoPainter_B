@@ -21,7 +21,7 @@ Mode 3: Same as mode 2 but next image will be selected randomly from fileList.tx
 */
 
 // We'll use settings.txt instead of hard-coded values
-int Mode = 3; // Default that can be overridden by settings.txt
+int Mode = 1; // Default that can be overridden by settings.txt
 
 float measureVBAT(void)
 {
