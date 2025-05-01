@@ -1263,12 +1263,45 @@ void saveSettings(Settings_t *settings)
 
     FRESULT fr;
     FIL fil;
+    Settings_t existing_settings;
 
-    // Validate settings before saving
-    int mode = (settings->mode >= 0 && settings->mode <= 3) ? settings->mode : 3;
-    int time_interval = (settings->timeInterval > 0 && settings->timeInterval < 24 * 60) ? settings->timeInterval : 12 * 60;
-    int current_index = (settings->currentIndex > 0) ? settings->currentIndex : 1;
+    // First read existing settings
+    fr = f_open(&fil, "settings.txt", FA_READ);
+    if (FR_OK == fr)
+    {
+        // File exists, read current values
+        char line[100];
+        char key[50];
+        int value;
 
+        while (f_gets(line, sizeof(line), &fil))
+        {
+            if (sscanf(line, "%[^=]=%d", key, &value) == 2)
+            {
+                if (strcmp(key, "Mode") == 0)
+                    existing_settings.mode = value;
+                else if (strcmp(key, "TimeInterval") == 0)
+                    existing_settings.timeInterval = value;
+                else if (strcmp(key, "CurrentIndex") == 0)
+                    existing_settings.currentIndex = value;
+            }
+        }
+        f_close(&fil);
+    }
+    else
+    {
+        // No existing file, use defaults
+        existing_settings.mode = 3;
+        existing_settings.timeInterval = 12 * 60;
+        existing_settings.currentIndex = 1;
+    }
+
+    // Validate and merge settings
+    int mode = (settings->mode >= 0 && settings->mode <= 3) ? settings->mode : existing_settings.mode;
+    int time_interval = (settings->timeInterval > 0 && settings->timeInterval < 24 * 60 * 30) ? settings->timeInterval : existing_settings.timeInterval;
+    int current_index = (settings->currentIndex > 0) ? settings->currentIndex : existing_settings.currentIndex;
+
+    // Now write the merged settings
     fr = f_open(&fil, "settings.txt", FA_CREATE_ALWAYS | FA_WRITE);
     if (FR_OK != fr)
     {
