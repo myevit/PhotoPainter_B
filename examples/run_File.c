@@ -558,6 +558,70 @@ static int getPathIndex(void)
 
 /*
     function:
+        Update the image index. Update the image index after the image refresh is successful
+    parameter:
+        none
+*/
+void updatePathIndex(void)
+{
+    Settings_t settings;
+
+    // Make sure SD card is mounted before updating
+    run_mount();
+
+    // Load current settings
+    if (loadSettings(&settings) != 0)
+    {
+        printf("Failed to load settings, using defaults\r\n");
+        settings.mode = 3;
+        settings.timeInterval = 12 * 60;
+        settings.currentIndex = 1;
+    }
+
+    printf("Active mode from settings: %d\r\n", settings.mode);
+
+    if (settings.mode == 3)
+    {
+        // For Mode 3, get a new random index
+        int new_index = getRandomImageIndex();
+        printf("Generated random index: %d (old index was: %d)\r\n",
+               new_index, settings.currentIndex);
+
+        // Ensure we don't get the same index twice in a row if possible
+        if (new_index == settings.currentIndex && scanFileNum > 1)
+        {
+            printf("Same index generated, trying again...\r\n");
+            new_index = getRandomImageIndex();
+            printf("New random index: %d\r\n", new_index);
+        }
+
+        settings.currentIndex = new_index;
+    }
+    else
+    {
+        // For other modes, increment the index
+        settings.currentIndex++;
+        printf("Incrementing index to: %d\r\n", settings.currentIndex);
+
+        if (settings.currentIndex > scanFileNum)
+        {
+            settings.currentIndex = 1;
+            printf("Wrapped index back to 1\r\n");
+        }
+    }
+
+    // Save all settings
+    saveSettings(&settings);
+
+    // Make sure to unmount when done
+    run_unmount();
+
+    printf("Updated index to %d (Mode: %d)\r\n",
+           settings.currentIndex, settings.mode);
+}
+
+/*
+    function:
         Set the image path according to the current image index number
     parameter:
         none
@@ -637,71 +701,6 @@ int getRandomImageIndex(void)
 
     printf("Random index selected: %d (from seed: %lu)\r\n", index, random_seed);
     return index;
-}
-
-/*
-    function:
-        Update the image index. Update the image index after the image refresh is successful
-    parameter:
-        none
-*/
-void updatePathIndex(void)
-{
-    Settings_t settings;
-
-    // Make sure SD card is mounted before updating
-    run_mount();
-
-    // Load current settings
-    if (loadSettings(&settings) != 0)
-    {
-        printf("Failed to load settings, using defaults\r\n");
-        settings.mode = 3; // Use default mode 3 if settings can't be loaded
-        settings.timeInterval = 12 * 60;
-        settings.currentIndex = 1;
-        saveSettings(&settings); // Save defaults
-    }
-
-    printf("Active mode from settings: %d\r\n", settings.mode);
-
-    if (settings.mode == 3)
-    {
-        // For Mode 3, get a new random index
-        int new_index = getRandomImageIndex();
-        printf("Generated random index: %d (old index was: %d)\r\n",
-               new_index, settings.currentIndex);
-
-        // Ensure we don't get the same index twice in a row if possible
-        if (new_index == settings.currentIndex && scanFileNum > 1)
-        {
-            printf("Same index generated, trying again...\r\n");
-            new_index = getRandomImageIndex();
-            printf("New random index: %d\r\n", new_index);
-        }
-
-        settings.currentIndex = new_index;
-    }
-    else
-    {
-        // For other modes, increment the index
-        settings.currentIndex++;
-        printf("Incrementing index to: %d\r\n", settings.currentIndex);
-
-        if (settings.currentIndex > scanFileNum)
-        {
-            settings.currentIndex = 1;
-            printf("Wrapped index back to 1\r\n");
-        }
-    }
-
-    // Save updated settings
-    saveSettings(&settings);
-
-    // Make sure to unmount when done
-    run_unmount();
-
-    printf("Updated index to %d (Mode: %d)\r\n",
-           settings.currentIndex, settings.mode);
 }
 
 /*
@@ -1151,19 +1150,15 @@ void createDefaultSettings(void)
 */
 char loadSettings(Settings_t *settings)
 {
-    // Don't mount here - caller should handle mounting
-
-    FRESULT fr;
-    FIL fil;
-    char line[100];
-    char key[50];
-    int value;
-    FILINFO fno;
-
     // Initialize with safe defaults
     settings->mode = 3;
     settings->timeInterval = 12 * 60;
     settings->currentIndex = 1;
+
+    // Don't mount here - caller should handle mounting
+    FRESULT fr;
+    FIL fil;
+    FILINFO fno;
 
     // Check if settings file exists
     fr = f_stat("settings.txt", &fno);
@@ -1181,6 +1176,10 @@ char loadSettings(Settings_t *settings)
     }
 
     // Read settings line by line
+    char line[100];
+    char key[50];
+    int value;
+
     while (f_gets(line, sizeof(line), &fil))
     {
         // Remove newline characters
@@ -1191,61 +1190,51 @@ char loadSettings(Settings_t *settings)
         if (newline)
             *newline = '\0';
 
-        // Print raw line for debugging
-        printf("Read raw line: [%s]\r\n", line);
-
         // Parse each line as key=value
         if (sscanf(line, "%[^=]=%d", key, &value) == 2)
         {
-            printf("Parsed: key=[%s], value=%d\r\n", key, value);
+            printf("Read setting: %s=%d\r\n", key, value);
 
-            // Verify value is reasonable before accepting it
             if (strcmp(key, "Mode") == 0)
             {
                 if (value >= 0 && value <= 3)
                 {
                     settings->mode = value;
-                    printf("Set Mode=%d\r\n", value);
                 }
                 else
                 {
-                    printf("Invalid Mode value: %d (must be 0-3)\r\n", value);
+                    printf("Invalid Mode value: %d (using default %d)\r\n", value, settings->mode);
                 }
             }
             else if (strcmp(key, "TimeInterval") == 0)
             {
-                if (value > 0 && value < 24 * 60)
-                { // Sanity check: between 1 minute and 24 hours
+                if (value > 0 && value < 24 * 60 * 30)
+                {
                     settings->timeInterval = value;
-                    printf("Set TimeInterval=%d\r\n", value);
                 }
                 else
                 {
-                    printf("Invalid TimeInterval value: %d (must be 1-%d)\r\n", value, 24 * 60);
+                    printf("Invalid TimeInterval value: %d (using default %d)\r\n", value, settings->timeInterval);
                 }
             }
             else if (strcmp(key, "CurrentIndex") == 0)
             {
                 if (value > 0)
-                { // Must be positive
+                {
                     settings->currentIndex = value;
-                    printf("Set CurrentIndex=%d\r\n", value);
                 }
                 else
                 {
-                    printf("Invalid CurrentIndex value: %d (must be > 0)\r\n", value);
+                    printf("Invalid CurrentIndex value: %d (using default %d)\r\n", value, settings->currentIndex);
                 }
             }
-        }
-        else
-        {
-            printf("Failed to parse line: [%s]\r\n", line);
         }
     }
 
     f_close(&fil);
+    printf("Loaded settings: Mode=%d, TimeInterval=%d, CurrentIndex=%d\r\n",
+           settings->mode, settings->timeInterval, settings->currentIndex);
 
-    // Don't unmount here - caller should handle unmounting
     return 0;
 }
 
@@ -1260,48 +1249,14 @@ char loadSettings(Settings_t *settings)
 void saveSettings(Settings_t *settings)
 {
     // Don't mount here - caller should handle mounting
-
     FRESULT fr;
     FIL fil;
-    Settings_t existing_settings;
 
-    // First read existing settings
-    fr = f_open(&fil, "settings.txt", FA_READ);
-    if (FR_OK == fr)
-    {
-        // File exists, read current values
-        char line[100];
-        char key[50];
-        int value;
+    // Validate settings before saving
+    int mode = (settings->mode >= 0 && settings->mode <= 3) ? settings->mode : 3;
+    int time_interval = (settings->timeInterval > 0 && settings->timeInterval < 24 * 60 * 30) ? settings->timeInterval : 12 * 60;
+    int current_index = (settings->currentIndex > 0) ? settings->currentIndex : 1;
 
-        while (f_gets(line, sizeof(line), &fil))
-        {
-            if (sscanf(line, "%[^=]=%d", key, &value) == 2)
-            {
-                if (strcmp(key, "Mode") == 0)
-                    existing_settings.mode = value;
-                else if (strcmp(key, "TimeInterval") == 0)
-                    existing_settings.timeInterval = value;
-                else if (strcmp(key, "CurrentIndex") == 0)
-                    existing_settings.currentIndex = value;
-            }
-        }
-        f_close(&fil);
-    }
-    else
-    {
-        // No existing file, use defaults
-        existing_settings.mode = 3;
-        existing_settings.timeInterval = 12 * 60;
-        existing_settings.currentIndex = 1;
-    }
-
-    // Validate and merge settings
-    int mode = (settings->mode >= 0 && settings->mode <= 3) ? settings->mode : existing_settings.mode;
-    int time_interval = (settings->timeInterval > 0 && settings->timeInterval < 24 * 60 * 30) ? settings->timeInterval : existing_settings.timeInterval;
-    int current_index = (settings->currentIndex > 0) ? settings->currentIndex : existing_settings.currentIndex;
-
-    // Now write the merged settings
     fr = f_open(&fil, "settings.txt", FA_CREATE_ALWAYS | FA_WRITE);
     if (FR_OK != fr)
     {
@@ -1309,14 +1264,9 @@ void saveSettings(Settings_t *settings)
         return;
     }
 
-    // Write values safely
-    printf("Writing Mode=%d\r\n", mode);
+    // Write values
     f_printf(&fil, "Mode=%d\r\n", mode);
-
-    printf("Writing TimeInterval=%d\r\n", time_interval);
     f_printf(&fil, "TimeInterval=%d\r\n", time_interval);
-
-    printf("Writing CurrentIndex=%d\r\n", current_index);
     f_printf(&fil, "CurrentIndex=%d\r\n", current_index);
 
     // Ensure data is written to disk
@@ -1325,6 +1275,4 @@ void saveSettings(Settings_t *settings)
 
     printf("Saved settings: Mode=%d, TimeInterval=%d, CurrentIndex=%d\r\n",
            mode, time_interval, current_index);
-
-    // Don't unmount here - caller should handle unmounting
 }

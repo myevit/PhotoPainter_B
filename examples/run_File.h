@@ -2,15 +2,17 @@
 #define _RUN_FILE_H_
 
 #include "DEV_Config.h"
+#include <stdbool.h> // For bool type
 
 #define fileNumber 100
 #define fileLen 100
 
 // Settings structure
-typedef struct {
-    int mode;           // Display mode (0-3)
-    int timeInterval;   // Time interval in minutes
-    int currentIndex;   // Current image index
+typedef struct
+{
+    int mode;         // Display mode (0-3)
+    int timeInterval; // Time interval in minutes
+    int currentIndex; // Current image index
 } Settings_t;
 
 char sdTest(void);
